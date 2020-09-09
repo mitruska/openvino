@@ -245,7 +245,7 @@ cdef class IECore:
         return versions
 
     ## Reads a network from the Intermediate Representation (IR) and creates an `IENetwork`.
-    #  @param model: A `.xml` file of the IR or string with IR.
+    #  @param model: A `.xml`, `.onnx`or `.prototxt` model file or string with IR.
     #  @param weights: A `.bin` file of the IR. Depending on `init_from_buffer` value, can be a string path or
     #                  bytes with file content.
     #  @param init_from_buffer: Defines the way of how `model` and `weights` attributes are interpreted.
@@ -259,25 +259,21 @@ cdef class IECore:
     #  net = ie.read_network(model=path_to_xml_file, weights=path_to_bin_file)
     #  ```
     cpdef IENetwork read_network(self, model: [str, bytes, Path], weights: [str, bytes, Path] = "", init_from_buffer: bool = False):
-        cdef char*xml_buffer
         cdef uint8_t*bin_buffer
         cdef string weights_
         cdef string model_
         cdef IENetwork net = IENetwork()
         if init_from_buffer:
-            xml_buffer = <char*> malloc(len(model)+1)
             bin_buffer = <uint8_t *> malloc(len(weights))
-            memcpy(xml_buffer, <char*> model, len(model))
             memcpy(bin_buffer, <uint8_t *> weights, len(weights))
-            xml_buffer[len(model)] = b'\0'
-            net.impl = self.impl.readNetwork(xml_buffer, bin_buffer, len(weights))
-            free(xml_buffer)
+            model_ = bytes(model)
+            net.impl = self.impl.readNetwork(model_, bin_buffer, len(weights))
         else:
             weights_ = "".encode()
-            if isinstance(model, Path) and isinstance(weights, Path):
+            if isinstance(model, Path) and (isinstance(weights, Path) or not weights):
                 if not model.is_file():
                     raise Exception("Path to the model {} doesn't exist or it's a directory".format(model))
-                if model.suffix != ".onnx":
+                if model.suffix not in [ ".onnx", ".prototxt"]:
                     if not weights.is_file():
                         raise Exception("Path to the weights {} doesn't exist or it's a directory".format(weights))
                     weights_ = bytes(weights)
@@ -285,7 +281,7 @@ cdef class IECore:
             else:
                 if not os.path.isfile(model):
                     raise Exception("Path to the model {} doesn't exist or it's a directory".format(model))
-                if not fnmatch(model, "*.onnx"):
+                if not (fnmatch(model, "*.onnx") or fnmatch(model, "*.prototxt")):
                     if not os.path.isfile(weights):
                         raise Exception("Path to the weights {} doesn't exist or it's a directory".format(weights))
                     weights_ = weights.encode()
@@ -503,6 +499,14 @@ cdef class PreProcessChannel:
 
 ## This class stores pre-process information for the input
 cdef class PreProcessInfo:
+    def __cinit__(self):
+        self._ptr = new CPreProcessInfo()
+        self._user_data  = True
+
+    def __dealloc__(self):
+        if self._user_data:
+            del self._ptr
+
     def __getitem__(self, size_t index):
         cdef CPreProcessChannel.Ptr c_channel = deref(self._ptr)[index]
         channel = PreProcessChannel()
@@ -544,10 +548,18 @@ cdef class PreProcessInfo:
 
     ## Resize Algorithm to be applied for input before inference if needed.
     #
+    #  \note It's need to set your input via the set_blob method.
+    #
     #  Usage example:\n
     #  ```python
     #  net = ie_core.read_network(model=path_to_xml_file, weights=path_to_bin_file)
     #  net.input_info['data'].preprocess_info.resize_algorithm = ResizeAlgorithm.RESIZE_BILINEAR
+    #  exec_net = ie_core.load_network(net, 'CPU')
+    #  tensor_desc = ie.TensorDesc("FP32", [1, 3, image.shape[2], image.shape[3]], "NCHW")
+    #  img_blob = ie.Blob(tensor_desc, image)
+    #  request = exec_net.requests[0]
+    #  request.set_blob('data', img_blob)
+    #  request.infer()
     #  ```
     @property
     def resize_algorithm(self):
@@ -615,6 +627,8 @@ cdef class InputInfoPtr:
     def preprocess_info(self):
         cdef CPreProcessInfo* c_preprocess_info = &deref(self._ptr).getPreProcess()
         preprocess_info = PreProcessInfo()
+        del preprocess_info._ptr
+        preprocess_info._user_data = False
         preprocess_info._ptr = c_preprocess_info
         return preprocess_info
 
@@ -633,6 +647,7 @@ cdef class InputInfoPtr:
     def input_data(self):
         cdef C.DataPtr c_data_ptr = deref(self._ptr).getInputData()
         data_ptr = DataPtr()
+        data_ptr._ptr_network = self._ptr_network
         data_ptr._ptr = c_data_ptr
         return data_ptr
 
@@ -676,6 +691,10 @@ cdef class InputInfoCPtr:
 
 ## This class is the layer data representation.
 cdef class DataPtr:
+    ## Default constructor
+    def __init__(self):
+        self._ptr_network = NULL
+
     ## Name of the data object
     @property
     def name(self):
@@ -717,8 +736,15 @@ cdef class DataPtr:
 
     @property
     def creator_layer(self):
-        cdef C.CNNLayerWeakPtr _l_ptr = deref(self._ptr).getCreatorLayer()
+        warnings.warn("'creator_layer' property of DataPtr class is deprecated and is going to be removed in 2021.2.",
+                      DeprecationWarning)
+        cdef C.CNNLayerWeakPtr _l_ptr
         cdef IENetLayer creator_layer
+
+        if self._ptr_network != NULL:
+            deref(self._ptr_network).convertToOldRepresentation()
+        _l_ptr = C.getCreatorLayer(self._ptr)
+
         creator_layer = IENetLayer()
         if _l_ptr.lock() != NULL:
             creator_layer._ptr = _l_ptr.lock()
@@ -728,8 +754,15 @@ cdef class DataPtr:
 
     @property
     def input_to(self):
-        cdef map[string, C.CNNLayerPtr] _l_ptr_map = deref(self._ptr).getInputTo()
+        warnings.warn("'input_to' property of DataPtr class is deprecated and is going to be removed in 2021.2.",
+                      DeprecationWarning)
+        cdef map[string, C.CNNLayerPtr] _l_ptr_map
         cdef IENetLayer input_to
+
+        if self._ptr_network != NULL:
+            deref(self._ptr_network).convertToOldRepresentation()
+        _l_ptr_map = C.getInputTo(self._ptr)
+
         input_to_list = []
         for layer in _l_ptr_map:
             input_to = IENetLayer()
@@ -759,28 +792,6 @@ cdef class CDataPtr:
     @property
     def initialized(self):
         return deref(self._ptr).isInitialized()
-
-    # TODO: Resolve compilation error
-    # @property
-    # def creator_layer(self):
-    #     cdef C.CNNLayerWeakPtr _l_ptr = deref(self._ptr).getCreatorLayer()
-    #     cdef IENetLayer creator_layer
-    #     creator_layer = IENetLayer()
-    #     if _l_ptr.lock() != NULL:
-    #         creator_layer._ptr = _l_ptr.lock()
-    #     else:
-    #         raise RuntimeError("Creator IENetLayer of DataPtr object with name {} already released!".format(self.name))
-    #     return creator_layer
-    # @property
-    # def input_to(self):
-    #     cdef map[string, C.CNNLayerPtr] _l_ptr_map = deref(self._ptr).getInputTo()
-    #     cdef IENetLayer input_to
-    #     input_to_list = []
-    #     for layer in _l_ptr_map:
-    #         input_to = IENetLayer()
-    #         input_to._ptr = layer.second
-    #         input_to_list.append(input_to)
-    #     return input_to_list
 
 
 ## This class represents a network instance loaded to plugin and ready for inference.
@@ -1050,9 +1061,24 @@ cdef class InferRequest:
             output_blobs[output] = deepcopy(blob)
         return output_blobs
 
+    ## Dictionary that maps input layer names to corresponding preprocessing information
+    @property
+    def preprocess_info(self):
+        preprocess_info = {}
+        cdef const CPreProcessInfo** c_preprocess_info
+        for input_blob in self.input_blobs.keys():
+            preprocess = PreProcessInfo()
+            del preprocess._ptr
+            preprocess._user_data = False
+            c_preprocess_info = <const CPreProcessInfo**>(&preprocess._ptr)
+            deref(self.impl).getPreProcess(input_blob.encode(), c_preprocess_info)
+            preprocess_info[input_blob] = preprocess
+        return preprocess_info
+
     ## Sets user defined Blob for the infer request
     #  @param blob_name: A name of input blob
     #  @param blob: Blob object to set for the infer request
+    #  @param preprocess_info: PreProcessInfo object to set for the infer request.
     #  @return None
     #
     #  Usage example:\n
@@ -1065,8 +1091,11 @@ cdef class InferRequest:
     #  blob = Blob(td, blob_data)
     #  exec_net.requests[0].set_blob(blob_name="input_blob_name", blob=blob),
     #  ```
-    def set_blob(self, blob_name : str, blob : Blob):
-        deref(self.impl).setBlob(blob_name.encode(), blob._ptr)
+    def set_blob(self, blob_name : str, blob : Blob, preprocess_info: PreProcessInfo = None):
+        if preprocess_info:
+            deref(self.impl).setBlob(blob_name.encode(), blob._ptr, deref(preprocess_info._ptr))
+        else:
+            deref(self.impl).setBlob(blob_name.encode(), blob._ptr)
         self._user_blobs[blob_name] = blob
     ## Starts synchronous inference of the infer request and fill outputs array
     #
@@ -1236,6 +1265,10 @@ cdef class InferRequest:
 
 
 ## This class represents a main layer information and providing setters allowing to modify layer properties
+#
+#  \note This class is deprecated: for working with layers, please, use nGraph Python API.
+#        This class is going to be removed in 2021.2
+#
 cdef class IENetLayer:
     ## Name of the layer
     @property
@@ -1247,22 +1280,6 @@ cdef class IENetLayer:
     def type(self):
         return deref(self._ptr).type.decode()
 
-    ## \note This property is deprecated.
-    #  Please, use out_data property to access DataPtr objects for all output ports, which contains full
-    #  information about layer's output data including precision.
-    #
-    #  Layer base operating precision. Provides getter and setter interfaces.
-    @property
-    def precision(self):
-        warnings.warn("precision property of IENetLayer is deprecated. "
-                      "Please instead use precision property of DataPtr objects "
-                      "returned by out_data property",
-                      DeprecationWarning)
-        return deref(self._ptr).precision.name().decode()
-
-    @precision.setter
-    def precision(self, precision: str):
-        deref(self._ptr).precision = C.Precision.FromStr(precision.encode())
 
     ## Layer affinity set by user or a default affinity may be setted using `IECore.query_network() method`
     #  which returns dictionary {layer_name : device}.
@@ -1293,6 +1310,7 @@ cdef class IENetLayer:
     @params.setter
     def params(self, new_params):
         deref(self._ptr).params = dict_to_c_map(new_params)
+
     ## Returns a list, which contains names of layers preceding this layer
     @property
     def parents(self):
@@ -1312,40 +1330,10 @@ cdef class IENetLayer:
         cdef map[string, C.CNNLayerPtr] _l_ptr_map
         input_to_list = []
         for l in c_outs:
-            _l_ptr_map = deref(l).getInputTo()
+            _l_ptr_map = C.getInputTo(l)
             for layer in _l_ptr_map:
                 input_to_list.append(deref(layer.second).name.decode())
         return input_to_list
-
-    ## \note This property is deprecated.
-    # Please, use out_data property to access DataPtr objects for all output ports, which contains full
-    # information about layer's output data including layout
-    #
-    # Returns the layout of the layer output data on 1st port
-    @property
-    def layout(self):
-        warnings.warn("layout property of IENetLayer is deprecated. "
-                      "Please instead use shape property of DataPtr objects "
-                      "returned by in_data or out_data property to access shape of input or output data "
-                      "on corresponding ports",
-                      DeprecationWarning)
-        cdef C.DataPtr c_input = deref(self._ptr).outData[0]
-        return layout_int_to_str_map[deref(c_input).getLayout()]
-
-    ## \note This property is deprecated.
-    # Please, use out_data property to access DataPtr objects for all output ports, which contains full
-    # information about layer's output data including shape
-    #
-    # Return the list of dimension of the layer output data on 1st port
-    @property
-    def shape(self):
-        warnings.warn("shape property of IENetLayer is deprecated. "
-                      "Please use shape property of DataPtr instead objects "
-                      "returned by in_data or out_data property to access shape of input or output data "
-                      "on corresponding ports",
-                      DeprecationWarning)
-        cdef C.DataPtr c_input = deref(self._ptr).outData[0]
-        return deref(c_input).getDims()
 
     ## Returns a list of DataPtr objects representing the output data of the layer on corresponding port
     @property
@@ -1386,17 +1374,6 @@ cdef class IENetLayer:
             blobs_map[blob.first.decode()] = weights_buffer.to_numpy()
         return blobs_map
 
-    ## \note This property is deprecated.
-    #  Please use blobs property instead.
-    #
-    #  Dictionary with layer weights, biases or custom blobs if any
-    @property
-    def weights(self):
-        warnings.warn("weights property of IENetLayer is deprecated. "
-                      "Please use blobs property instead.",
-                      DeprecationWarning)
-        return self.blobs
-
 
 ## This class contains the information about the network model read from IR and allows you to manipulate with
 #  some model parameters such as layers affinity and output layers.
@@ -1434,11 +1411,10 @@ cdef class IENetwork:
     #   ```
 
     def __cinit__(self, model: [str, bytes] = "", weights: [str, bytes] = "", init_from_buffer: bool = False):
-        # TODO: ucomment when ngraph python api will work
         # Try to create Inference Engine network from capsule
-        # if model.__class__.__name__ == 'PyCapsule' and weights == '' and init_from_buffer is False:
-        #     self.impl = C.IENetwork(model)
-        #     return
+        if model.__class__.__name__ == 'PyCapsule' and weights == '' and init_from_buffer is False:
+            self.impl = C.IENetwork(model)
+            return
         cdef char*xml_buffer = <char*> malloc(len(model)+1)
         cdef uint8_t*bin_buffer = <uint8_t *> malloc(len(weights))
         cdef string model_
@@ -1483,6 +1459,7 @@ cdef class IENetwork:
         for input in c_inputs:
             input_info_ptr = InputInfoPtr()
             input_info_ptr._ptr = input.second
+            input_info_ptr._ptr_network = &self.impl
             inputs[input.first.decode()] = input_info_ptr
         return inputs
 
@@ -1501,6 +1478,7 @@ cdef class IENetwork:
         cdef DataPtr data_ptr
         for input in c_inputs:
             data_ptr = DataPtr()
+            data_ptr._ptr_network = &self.impl
             data_ptr._ptr = input.second
             inputs[input.first.decode()] = data_ptr
         return inputs
@@ -1513,6 +1491,7 @@ cdef class IENetwork:
         cdef DataPtr data_ptr
         for output in c_outputs:
             data_ptr = DataPtr()
+            data_ptr._ptr_network = &self.impl
             data_ptr._ptr = output.second
             outputs[output.first.decode()] = data_ptr
         return outputs
@@ -1537,10 +1516,18 @@ cdef class IENetwork:
             raise AttributeError("Invalid batch size {}! Batch size should be positive integer value".format(batch))
         self.impl.setBatch(batch)
 
-    ## Return dictionary that maps network layer names in topological order to IENetLayer
+    ## \note The property is deprecated. Please use get_ops()/get_ordered_ops() methods
+    #  from nGraph Python API.
+    #  This property will be removed in 2021.2.
+    #
+    #  Return dictionary that maps network layer names in topological order to IENetLayer
     #  objects containing layer properties
     @property
     def layers(self):
+        warnings.warn("'layers' property of IENetwork class is deprecated. "
+              "For iteration over network please use get_ops()/get_ordered_ops() methods "
+              "from nGraph Python API",
+              DeprecationWarning)
         cdef vector[C.CNNLayerPtr] c_layers = self.impl.getLayers()
         layers = OrderedDict()
         cdef IENetLayer net_l
@@ -1619,10 +1606,8 @@ cdef class IENetwork:
             c_input_shapes[input.encode()] = c_shape
         self.impl.reshape(c_input_shapes)
 
-    # TODO: ucomment when ngraph python api will work
-
-    # def get_function(self):
-    #     return self.impl.getFunction()
+    def _get_function_capsule(self):
+        return self.impl.getFunction()
 
 cdef class BlobBuffer:
     """Copy-less accessor for Inference Engine Blob"""
@@ -1676,8 +1661,9 @@ cdef class BlobBuffer:
             'I8': 'b',  # signed char
             'I16': 'h',  # signed short
             'I32': 'i',  # signed int
+            'U32': 'I',  # unsigned int
             'I64': 'q',  # signed long int
-            'U64': 'Q',  # signed long int
+            'U64': 'Q',  # unsigned long int
         }
         if name not in precision_to_format:
             raise ValueError("Unknown Blob precision: {}".format(name))

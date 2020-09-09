@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <blob_factory.hpp>
 #include <cmath>
-#include <details/caseless.hpp>
+#include <caseless.hpp>
 #include <limits>
 #include <map>
 #include <memory>
@@ -16,9 +16,8 @@
 #include <vector>
 
 #include <ie_common.h>
-#include <details/ie_cnn_network_tools.h>
-#include "cnn_network_impl.hpp"
-#include "ie_util_internal.hpp"
+#include <legacy/cnn_network_impl.hpp>
+#include <legacy/ie_util_internal.hpp>
 
 #include "low_precision_transformations/common/ie_lpt_exception.hpp"
 #include "low_precision_transformations/quantization_details.hpp"
@@ -254,12 +253,15 @@ void ConcatTransformation::addDequantizationLayers(
                     getLayerDequantizationCallback(*layer, layer->name, layerDequantizationScales, layerDequantizationShifts);
                 }
 
-                CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
+                const std::vector<CNNLayerPtr> dequantizationLayers = CNNNetworkHelper::addScaleShiftBetween(
                     context,
                     std::make_shared<CNNLayer>(*layer),
                     child,
                     DequantizationDetails(layerDequantizationScales, layerDequantizationShifts, layerDequantizationScales.size()));
-                context.dequantizationLayersNames.insert(dequantizationLayer->name);
+
+                for (const CNNLayerPtr& dequantizationLayer : dequantizationLayers) {
+                    context.dequantizationLayersNames.insert(dequantizationLayer->name);
+                }
             }
         }
 
@@ -276,14 +278,17 @@ void ConcatTransformation::addDequantizationLayers(
                 getLayerDequantizationCallback(*layer, originalName, layerDequantizationScales, layerDequantizationShifts);
             }
 
-            CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
+            const std::vector<CNNLayerPtr> dequantizationLayers = CNNNetworkHelper::addScaleShiftBetween(
                 context,
                 std::make_shared<CNNLayer>(*layer),
                 nullptr,
                 DequantizationDetails(layerDequantizationScales, layerDequantizationShifts, layerDequantizationScales.size()),
                 originalName);
-            context.dequantizationLayersNames.insert(dequantizationLayer->name);
-            subgraph.layers[dequantizationLayer->name] = dequantizationLayer.get();
+
+            for (const CNNLayerPtr& dequantizationLayer : dequantizationLayers) {
+                context.dequantizationLayersNames.insert(dequantizationLayer->name);
+                subgraph.layers[dequantizationLayer->name] = dequantizationLayer.get();
+            }
         }
     }
 }

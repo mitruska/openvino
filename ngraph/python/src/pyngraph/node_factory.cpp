@@ -30,6 +30,7 @@
 #include "ngraph/check.hpp"
 #include "ngraph/except.hpp"
 #include "ngraph/node.hpp"
+#include "ngraph/op/util/op_types.hpp"
 #include "ngraph/opsets/opset.hpp"
 #include "node_factory.hpp"
 #include "tensor_iterator_builder.hpp"
@@ -55,7 +56,7 @@ namespace
                 std::shared_ptr<ngraph::Node>(m_opset.create(op_type_name));
 
             NGRAPH_CHECK(op_node != nullptr, "Couldn't create operator: ", op_type_name);
-            NGRAPH_CHECK(!op_node->is_constant(),
+            NGRAPH_CHECK(!ngraph::op::is_constant(op_node),
                          "Currently NodeFactory doesn't support Constant node: ",
                          op_type_name);
 
@@ -86,7 +87,6 @@ namespace
             using OpsetFunction = std::function<const ngraph::OpSet&()>;
 
             static const std::map<std::string, OpsetFunction> s_opsets{
-                {"opset0", OpsetFunction(ngraph::get_opset0)},
                 {"opset1", OpsetFunction(ngraph::get_opset1)},
                 {"opset2", OpsetFunction(ngraph::get_opset2)},
                 {"opset3", OpsetFunction(ngraph::get_opset3)},
@@ -101,7 +101,7 @@ namespace
             return it->second();
         }
 
-        const ngraph::OpSet& m_opset{ngraph::get_opset0()};
+        const ngraph::OpSet& m_opset{ngraph::get_opset4()};
     };
 }
 

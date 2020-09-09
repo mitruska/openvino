@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <xml_helper.hpp>
 #include "object_detection_matcher.hpp"
-#include "details/ie_cnn_network_iterator.hpp"
+#include <legacy/details/ie_cnn_network_iterator.hpp>
 
 #include <algorithm>
 

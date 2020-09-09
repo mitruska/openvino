@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_set>
 #include <ie_icnn_network.hpp>
-#include <graph_tools.hpp>
+#include <legacy/graph_tools.hpp>
 #include "gna_layer_type.hpp"
 #include "gna_layer_info.hpp"
 
@@ -40,7 +40,7 @@ bool GNAPluginNS::AreLayersSupported(InferenceEngine::ICNNNetwork& network, std:
         return false;
     }
 
-    auto & secondLayers = inputs.begin()->second->getInputData()->getInputTo();
+    auto & secondLayers = getInputTo(inputs.begin()->second->getInputData());
     if (secondLayers.empty()) {
         errMessage = "Network consists of input layer only (GNA)\n";
         return false;

@@ -73,7 +73,7 @@ void ConcatTransformation::SetUp() {
         ngraph::element::i64,
         ngraph::Shape{ 2 },
         std::vector<int64_t>({ static_cast<int64_t>(inputShape[2]), static_cast<int64_t>(inputShape[3]) }));
-    ngraph::op::InterpolateAttrs interpolateAttrs;
+    ngraph::op::v0::InterpolateAttrs interpolateAttrs;
     interpolateAttrs.align_corners = false;
     interpolateAttrs.antialias = false;
     interpolateAttrs.axes = ngraph::AxisSet{2, 3};
@@ -106,7 +106,7 @@ void ConcatTransformation::validate() {
     EXPECT_EQ(1, outputs.size());
 
     std::map<std::string, InferenceEngine::DataPtr>::iterator it = outputs.begin();
-    const InferenceEngine::CNNLayerPtr outputLayer = it->second->getCreatorLayer().lock();
+    const InferenceEngine::CNNLayerPtr outputLayer = getCreatorLayer(it->second).lock();
     EXPECT_TRUE(outputLayer != nullptr);
     EXPECT_EQ("ScaleShift", outputLayer->type);
 

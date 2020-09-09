@@ -10,7 +10,8 @@
 #include <vector>
 #include <unordered_set>
 
-#include "cnn_network_impl.hpp"
+#include <legacy/ie_layers.h>
+#include <legacy/cnn_network_impl.hpp>
 
 #include "low_precision_transformations/common/dequantization_details.hpp"
 #include "low_precision_transformations/transformation_context.hpp"
@@ -121,6 +122,8 @@ public:
         const std::unordered_set<std::string>& exceptionLayerTypes = {},
         const int portIndex = -1);
 
+    static bool isLayoutSupported(const CNNLayer& layer);
+
     static size_t getInputChannelsCount(const CNNLayer& layer);
 
     static size_t getParamOutput(const CNNLayer& layer);
@@ -137,7 +140,9 @@ public:
 
     static void replaceLayer(TransformationContext& context, const CNNLayerPtr source, const CNNLayerPtr target);
 
-    static CNNLayerPtr addScaleShiftBetween(
+    // Add ScaleShift beween parent and child layers. Affected edges (output and input ports) are not specified.
+    // As result ScaleShift will be added for all edges between parent and children.
+    static std::vector<CNNLayerPtr> addScaleShiftBetween(
         TransformationContext& context,
         const CNNLayerPtr parent,
         const CNNLayerPtr child,
@@ -155,7 +160,8 @@ public:
         DataPtr parentOutData,
         CNNLayer::Ptr layer,
         const std::string& nextLayerName,
-        ICNNNetwork& net);
+        ICNNNetwork& net,
+        const int childInsDataIndex = -1);
 
     IE_SUPPRESS_DEPRECATED_START
     static void fillInScaleShift(ScaleShiftLayer* layer, const size_t channels, const float* scales, const float* shifts);
@@ -222,7 +228,7 @@ private:
         }
 
         IE_SUPPRESS_DEPRECATED_START
-        const CNNLayerPtr blobLayer = data->getCreatorLayer().lock();
+        const CNNLayerPtr blobLayer = getCreatorLayer(data).lock();
         if (blobLayer == nullptr) {
             THROW_IE_EXCEPTION << "parent layer is absent for " << quantize.type << " layer " << quantize.name;
         }
