@@ -60,6 +60,18 @@ int64_t get_sliced_dim_size(int64_t start, int64_t stop, int64_t step, int64_t d
     return sliced_dim_size;
 }
 
+bool is_max_int(element::Type_t ind_type, int64_t value) {
+    int64_t max_type_value = 0;
+    switch (ind_type) {
+    case element::i32:
+        max_type_value = std::numeric_limits<typename element_type_traits<element::i32>::value_type>::max();
+        break;
+    case element::i64:
+        max_type_value = std::numeric_limits<typename element_type_traits<element::i64>::value_type>::max();
+        break;
+    }
+    return max_type_value == value;
+}
 }  // namespace
 
 bool op::v8::Slice::visit_attributes(AttributeVisitor& visitor) {
@@ -283,29 +295,14 @@ PartialShape op::v8::Slice::calculate_output_shape(const std::vector<int64_t>& s
         const auto min_dim_size = get_sliced_dim_size(start, stop, step, axis_min_dim_length);
         if (axis_dim.is_static()) {
             output_shape[norm_axis] = min_dim_size;
-            continue;
+        } else if (!axis_dim.get_interval().has_upper_bound()) {
+            output_shape[norm_axis] = Dimension(-1);
+        } else {
+            // Calculate max dim length (upper bound)
+            auto axis_max_dim_length = axis_dim.get_interval().get_max_val();
+            const auto max_dim_size = get_sliced_dim_size(start, stop, step, axis_max_dim_length);
+            output_shape[norm_axis] = Dimension(min_dim_size, max_dim_size);
         }
-
-        // Avoid negative index normalization without upper bounds
-        if (!axis_dim.get_interval().has_upper_bound()) {
-            if ((step < 0 && start < 0 && stop > 0) || (step > 0 && stop < 0 && start > 0)) {
-                output_shape[norm_axis] = Dimension(-1);
-                continue;
-            } else if (step < 0 && start > 0 && stop < 0) {
-                int64_t max_out_dim = start >= INT32_MAX ? INT64_MAX : start + 1;
-                output_shape[norm_axis] = Dimension(0, max_out_dim);
-                continue;
-            } else if (step > 0 && stop > 0 && start < 0) {
-                int64_t max_out_dim = stop >= INT32_MAX ? INT64_MAX : stop;
-                output_shape[norm_axis] = Dimension(0, max_out_dim);
-                continue;
-            }
-        }
-
-        // Calculate max dim length (upper bound)
-        auto axis_max_dim_length = axis_dim.get_interval().get_max_val();
-        const auto max_dim_size = get_sliced_dim_size(start, stop, step, axis_max_dim_length);
-        output_shape[norm_axis] = Dimension(min_dim_size, max_dim_size);
     }
     return output_shape;
 }
