@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "default_opset.hpp"
+#include "utils/reshape.hpp"
 
 namespace ngraph {
 namespace onnx_import {
@@ -20,7 +21,10 @@ OutputVector cum_sum(const Node& node) {
     Output<ngraph::Node> axis;
 
     if (inputs.size() > 1) {
-        axis = inputs.at(1);  // optional input, 0-D tensor
+        axis = inputs.at(1);  // optional input, 0D or 1D tensor
+        if (axis.get_partial_shape().rank().is_static() && axis.get_partial_shape().size() > 0) {
+            axis = reshape::interpret_as_scalar(axis);
+        }
     } else {
         axis = default_opset::Constant::create(element::i64, Shape{}, {0});  // default
     }
