@@ -140,7 +140,7 @@ bool scatter_label_evaluator(const Node* node, TensorLabelVector& output_labels)
     std::vector<ov::runtime::Tensor> input_tensors;
     input_tensors.reserve(input_values.size());
 
-    auto make_input_label = [&](const Output<Node>& input, TensorLabel& labels) {
+    auto emplace_label_tensor = [&](const Output<Node>& input, TensorLabel& labels) {
         input_tensors.emplace_back(element_type, input.get_shape());
         labels.resize(shape_size(input.get_shape()));
         memcpy(input_tensors.back().data(), labels.data(), input_tensors.back().get_byte_size());
@@ -149,9 +149,9 @@ bool scatter_label_evaluator(const Node* node, TensorLabelVector& output_labels)
     for (size_t i = 0; i < input_values.size(); ++i) {
         const auto& input = input_values[i];
         if (i == data_in_idx) {
-            make_input_label(input, data_labels);
+            emplace_label_tensor(input, data_labels);
         } else if (i == updates_in_idx) {
-            make_input_label(input, updates_labels);
+            emplace_label_tensor(input, updates_labels);
         } else {
             const auto host_tensor_ptr = input.get_tensor().get_lower_value();
             input_tensors.emplace_back(host_tensor_ptr->get_element_type(),
