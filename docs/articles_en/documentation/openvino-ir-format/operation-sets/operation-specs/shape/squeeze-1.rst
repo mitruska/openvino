@@ -20,7 +20,10 @@ Squeeze
 * With the second input provided, each value is an index of a dimension from the first tensor that is to be removed. Specified dimension should be equal to 1, otherwise it will be ignored and copied as is.
   Dimension indices can be specified directly, or by negative indices (counting dimensions from the end).
 
-Note: Updated behavior since 2024.3, request of squeezing dimension not equal to 1 is expected to be ignored instead of causing an error.
+.. note::
+
+    Behavior before 2024.3 OpenVINO release: Error is raised when dimension to squeeze is not equal to 1.
+
 
 **Attributes**: *Squeeze* operation doesn't have attributes.
 
