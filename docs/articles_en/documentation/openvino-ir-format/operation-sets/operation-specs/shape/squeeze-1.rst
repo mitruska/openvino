@@ -26,9 +26,9 @@ Squeeze
 
 .. note::
 
-    - If index of the dimension to squeeze is provided as input and it points to a dynamic dimension that might be `1`, then the dimension is considered as squeezable.
-    Therefore the rank of the output shape will be reduced, but not dynamic.
+    - If index of the dimension to squeeze is provided as a constant input and it points to a dynamic dimension that might be `1`, then the dimension is considered as squeezable. Therefore the rank of the output shape will be reduced, but not dynamic.
     - If the input with indices is empty or not provided, dynamic dimension compatible with `1` leads to dynamic rank of the output shape.
+
 
 **Attributes**: *Squeeze* operation doesn't have attributes.
 
