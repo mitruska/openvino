@@ -98,6 +98,7 @@
 #include "transformations/smart_reshape/matmul_sr.hpp"
 #include "transformations/smart_reshape/reshape_sinking.hpp"
 #include "transformations/symbolic_transformations/symbolic_optimizations.hpp"
+#include "transformations/op_conversions/group_query_attention_decomposition.hpp"
 
 using namespace ov::element;
 
@@ -260,6 +261,8 @@ bool ov::pass::MOCTransformations::run_on_model(const std::shared_ptr<ov::Model>
     ADD_MATCHER(decomp, ConvertSubtractWithConstant)
     ADD_MATCHER(decomp, ConvertNegative)
     ADD_MATCHER(decomp, ConvertConvertPromoteTypes)
+    ADD_MATCHER(decomp, GroupQueryAttentionDecomposition)
+
     manager.register_pass<ov::pass::LinOpSequenceFusion>();
 
     auto multiply_fusions = manager.register_pass<ov::pass::GraphRewrite>();
